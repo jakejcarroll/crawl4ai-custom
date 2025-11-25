@@ -3,60 +3,60 @@ Market Intelligence Module for Crawl4AI
 
 This module provides tools for collecting structured market data on SaaS products.
 It includes:
-- Multi-source discovery (SaaSHub API, Product Hunt API)
-- Intelligent rate limit switching between sources
+- Product Hunt API client for discovering trending/popular products
+- SaaSHub API client for alternative product discovery  
+- Intelligent rate limit handling with auto-recovery
 - URL-based deduplication across sources
 - URL discovery for extracting homepage URLs from source pages
 - Pydantic schemas for LLM-based structured extraction
-- State management for resumable, incremental collection runs
-- Topic mapping between data sources
-- Orchestrator for multi-source, rate-limit-aware batch processing
+- Target list management with completion tracking
+- Two-phase collection: target building → data extraction
 """
 
 from .saashub import SaaSHubClient, SaaSHubAPIError, RateLimitError as SaaSHubRateLimitError
 from .producthunt import (
     ProductHuntClient, 
-    ProductHuntAPIError, 
-    ProductHuntRateLimitError,
-    PHProduct,
+    ProductHuntAPIError,
+    ProductHuntProduct,
+    ProductHuntTopic,
+    PRIORITY_TOPICS,
 )
-from .discovery import MultiSourceDiscovery, DiscoveryResult
-from .rate_limiter import MultiSourceRateLimiter, DataSource, RateLimitConfig
-from .topic_mapper import TopicMapper, CategoryMapping, SourceQuery
+from .rate_limiter import RateLimiter, RateLimitSource, RateLimitConfig, RATE_LIMIT_CONFIGS
+from .targets import TargetManager, Target, TargetStatus
 from .schemas import SaaSProductInfo, CollectedProduct
 from .state import CollectionState, ProductState
 from .url_discovery import discover_homepage_urls
-from .collect import MarketIntelCollector
+from .collect import MarketIntelCollector, ProductHuntCollector
 
 __all__ = [
-    # SaaSHub
+    # SaaSHub (legacy)
     "SaaSHubClient",
     "SaaSHubAPIError",
     "SaaSHubRateLimitError",
     # Product Hunt
     "ProductHuntClient",
     "ProductHuntAPIError",
-    "ProductHuntRateLimitError",
-    "PHProduct",
-    # Multi-source discovery
-    "MultiSourceDiscovery",
-    "DiscoveryResult",
+    "ProductHuntProduct",
+    "ProductHuntTopic",
+    "PRIORITY_TOPICS",
     # Rate limiting
-    "MultiSourceRateLimiter",
-    "DataSource",
+    "RateLimiter",
+    "RateLimitSource",
     "RateLimitConfig",
-    # Topic mapping
-    "TopicMapper",
-    "CategoryMapping",
-    "SourceQuery",
+    "RATE_LIMIT_CONFIGS",
+    # Target management
+    "TargetManager",
+    "Target",
+    "TargetStatus",
     # Schemas
     "SaaSProductInfo",
     "CollectedProduct",
-    # State
+    # State (legacy)
     "CollectionState",
     "ProductState",
     # URL discovery
     "discover_homepage_urls",
-    # Collector
+    # Collectors
     "MarketIntelCollector",
+    "ProductHuntCollector",
 ]

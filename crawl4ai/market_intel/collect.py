@@ -2,15 +2,22 @@
 """
 Market Intelligence Collector
 
-Orchestrates the collection of structured market data on SaaS products:
-1. Load seed queries from config
-2. Query SaaSHub API for alternatives (with rate limiting)
-3. Discover homepage URLs from SaaSHub pages
-4. Extract structured data from homepages using LLM (GPT-4o)
-5. Output JSONL dataset
+Two-phase collection system for SaaS product market data:
 
-Designed for resumable runs with state persistence and automatic
-halt on rate limit errors.
+Phase 1 - Target Building (target-build):
+  - Query Product Hunt API for trending/popular SaaS products
+  - Filter for validated products (votes >= 20)
+  - Build targets.jsonl with URLs and metadata
+
+Phase 2 - Data Extraction (extract):
+  - Read pending targets from targets.jsonl
+  - Scrape product homepages for detailed features
+  - Extract structured data using LLM (GPT-4o)
+  - Mark targets as completed/failed
+
+Legacy mode (default) uses SaaSHub API for backwards compatibility.
+
+Designed for resumable runs with rate limit auto-recovery.
 """
 
 import os
@@ -42,12 +49,16 @@ from .schemas import (
 )
 from .state import CollectionState, ProductState
 from .url_discovery import discover_homepage_single
+from .producthunt import ProductHuntClient, ProductHuntProduct, PRIORITY_TOPICS
+from .targets import TargetManager, Target, TargetStatus
+from .rate_limiter import RateLimiter, RateLimitSource
 
 
 # Default paths
 DEFAULT_STATE_PATH = Path("data/market_intel_state.json")
 DEFAULT_OUTPUT_PATH = Path("data/market_intel_products.jsonl")
 DEFAULT_SEEDS_PATH = Path("configs/market_intel_seeds.yml")
+DEFAULT_TARGETS_PATH = Path("targets/targets.jsonl")
 
 
 class MarketIntelCollector:
@@ -479,114 +490,343 @@ class MarketIntelCollector:
         return final_stats
 
 
-def main():
-    """CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="Market Intelligence Collector - Gather structured data on SaaS products",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Full run with all phases
-  python -m crawl4ai.market_intel.collect
-  
-  # Only discover products (no homepage/extraction)
-  python -m crawl4ai.market_intel.collect --skip-homepages --skip-extraction
-  
-  # Only extract (resume from existing state)
-  python -m crawl4ai.market_intel.collect --skip-discovery --skip-homepages
-  
-  # Use specific seeds
-  python -m crawl4ai.market_intel.collect --seeds notion slack figma
-  
-  # Custom batch size and output
-  python -m crawl4ai.market_intel.collect --batch-size 10 --output data/products.jsonl
-
-Environment Variables:
-  SAASHUB_API_KEY   SaaSHub API key (required)
-  OPENAI_API_KEY    OpenAI API key (required for extraction)
+class ProductHuntCollector:
+    """
+    Two-phase collector using Product Hunt as the discovery source.
+    
+    Phase 1 (target-build): Build target list from Product Hunt API
+    Phase 2 (extract): Scrape and extract data from target homepages
+    
+    Features:
+    - Resilient rate limiting with auto-recovery
+    - Persistent target list with completion tracking
+    - Resumable runs with state preservation
+    """
+    
+    def __init__(
+        self,
+        targets_path: Path = DEFAULT_TARGETS_PATH,
+        output_path: Path = DEFAULT_OUTPUT_PATH,
+        producthunt_token: Optional[str] = None,
+        openai_api_key: Optional[str] = None,
+        llm_provider: str = "openai/gpt-4o",
+        min_votes: int = 20,
+        verbose: bool = False,
+    ):
         """
+        Initialize the Product Hunt collector.
+        
+        Args:
+            targets_path: Path to targets.jsonl file
+            output_path: Path to JSONL output file
+            producthunt_token: Product Hunt API token (or from PRODUCTHUNT_ACCESS_TOKEN)
+            openai_api_key: OpenAI API key (or from OPENAI_API_KEY)
+            llm_provider: LLM provider string (e.g., "openai/gpt-4o")
+            min_votes: Minimum vote threshold for products (default: 20)
+            verbose: Enable verbose output
+        """
+        self.targets_path = Path(targets_path)
+        self.output_path = Path(output_path)
+        self.llm_provider = llm_provider
+        self.min_votes = min_votes
+        self.verbose = verbose
+        
+        # API keys
+        self.producthunt_token = producthunt_token or os.getenv("PRODUCTHUNT_ACCESS_TOKEN")
+        self.openai_api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
+        
+        # Rate limiter (shared for both sources)
+        self.rate_limiter = RateLimiter()
+        
+        # Target list manager
+        self.targets = TargetManager(self.targets_path)
+    
+    def _log(self, msg: str):
+        """Log a message if verbose mode is enabled."""
+        if self.verbose:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+    
+    async def build_targets(
+        self,
+        topics: Optional[List[str]] = None,
+        max_per_source: int = 100,
+        include_trending: bool = True,
+        include_popular: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Phase 1: Build target list from Product Hunt.
+        
+        Args:
+            topics: Optional list of topics to discover from
+            max_per_source: Max products to fetch per source
+            include_trending: Include trending products
+            include_popular: Include popular products
+            
+        Returns:
+            Discovery statistics
+        """
+        if not self.producthunt_token:
+            raise ValueError("Product Hunt token required. Set PRODUCTHUNT_ACCESS_TOKEN env var.")
+        
+        stats = {
+            "discovered": 0,
+            "added": 0,
+            "duplicates": 0,
+        }
+        
+        self._log("=== Building Target List from Product Hunt ===")
+        
+        # Use topics from priority list if not specified
+        topic_list = topics if topics else PRIORITY_TOPICS[:5]  # Top 5 by default
+        
+        async with ProductHuntClient(
+            access_token=self.producthunt_token,
+            rate_limiter=self.rate_limiter,
+            min_votes=self.min_votes,
+        ) as client:
+            # Collect popular products
+            if include_popular:
+                self._log("Fetching popular products...")
+                async for product in client.get_popular_products(limit=max_per_source):
+                    if self._add_product_as_target(product):
+                        stats["added"] += 1
+                    else:
+                        stats["duplicates"] += 1
+                    stats["discovered"] += 1
+            
+            # Collect trending products
+            if include_trending:
+                self._log("Fetching trending products...")
+                async for product in client.get_trending_products(limit=max_per_source):
+                    if self._add_product_as_target(product):
+                        stats["added"] += 1
+                    else:
+                        stats["duplicates"] += 1
+                    stats["discovered"] += 1
+            
+            # Collect by topics
+            for topic in topic_list:
+                self._log(f"Fetching products for topic: {topic}")
+                async for product in client.get_products_by_topic(topic, limit=max_per_source):
+                    if self._add_product_as_target(product):
+                        stats["added"] += 1
+                    else:
+                        stats["duplicates"] += 1
+                    stats["discovered"] += 1
+        
+        self._log(f"Added {stats['added']} new targets, {stats['duplicates']} duplicates skipped")
+        
+        # Get current stats
+        list_stats = self.targets.get_stats()
+        stats.update({
+            "total_targets": list_stats["total"],
+            "pending": list_stats["pending"],
+            "completed": list_stats["completed"],
+        })
+        
+        return stats
+    
+    def _add_product_as_target(self, product: ProductHuntProduct) -> bool:
+        """Add a ProductHuntProduct as a target. Returns True if added, False if duplicate."""
+        # Skip if no homepage URL
+        if not product.homepage_url:
+            return False
+        
+        target = Target.from_producthunt(product)
+        return self.targets.add_target(target)
+    
+    async def extract_targets(
+        self,
+        max_targets: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Phase 2: Extract structured data from pending targets.
+        
+        Args:
+            max_targets: Maximum number of targets to process (None for all)
+            
+        Returns:
+            Extraction statistics
+        """
+        if not self.openai_api_key:
+            raise ValueError("OpenAI API key required. Set OPENAI_API_KEY env var.")
+        
+        pending_targets = list(self.targets.get_pending())
+        if max_targets:
+            pending_targets = pending_targets[:max_targets]
+        
+        if not pending_targets:
+            self._log("No pending targets to extract")
+            return {"extracted": 0, "failed": 0, "pending": 0}
+        
+        stats = {
+            "extracted": 0,
+            "failed": 0,
+            "total": len(pending_targets),
+        }
+        
+        self._log(f"=== Extracting Data from {len(pending_targets)} Targets ===")
+        
+        # Configure LLM extraction strategy
+        llm_config = LLMConfig(
+            provider=self.llm_provider,
+            api_token=self.openai_api_key,
+        )
+        
+        extraction_strategy = LLMExtractionStrategy(
+            llm_config=llm_config,
+            schema=get_extraction_schema(),
+            instruction=EXTRACTION_INSTRUCTION,
+            verbose=self.verbose,
+        )
+        
+        async with AsyncWebCrawler(config=BrowserConfig(headless=True)) as crawler:
+            for i, target in enumerate(pending_targets):
+                self._log(f"[{i+1}/{len(pending_targets)}] Extracting: {target.name} ({target.homepage_url})")
+                
+                # Wait for rate limiter
+                await self.rate_limiter.wait(RateLimitSource.OPENAI)
+                
+                try:
+                    result = await crawler.arun(
+                        url=target.homepage_url,
+                        config=CrawlerRunConfig(
+                            extraction_strategy=extraction_strategy,
+                            cache_mode=CacheMode.BYPASS,
+                            wait_until="domcontentloaded",
+                        )
+                    )
+                    
+                    if not result.success:
+                        error_msg = result.error_message or "Crawl failed"
+                        self._log(f"  Crawl failed: {error_msg}")
+                        self.targets.mark_failed(target.id, error_msg)
+                        stats["failed"] += 1
+                        continue
+                    
+                    if result.extracted_content:
+                        try:
+                            content = json.loads(result.extracted_content)
+                            
+                            # Check for error response
+                            if isinstance(content, list) and content:
+                                first = content[0]
+                                if isinstance(first, dict) and first.get("error"):
+                                    error_msg = first.get("content", "Unknown error")
+                                    is_rate_limit = "rate limit" in str(error_msg).lower()
+                                    
+                                    self._log(f"  Extraction error: {error_msg}")
+                                    
+                                    if is_rate_limit:
+                                        await self.rate_limiter.handle_rate_limit(RateLimitSource.OPENAI)
+                                    
+                                    self.targets.mark_failed(target.id, error_msg)
+                                    stats["failed"] += 1
+                                    continue
+                            
+                            # Parse as SaaSProductInfo
+                            if isinstance(content, list) and content:
+                                product_info = SaaSProductInfo.model_validate(content[0])
+                            elif isinstance(content, dict):
+                                product_info = SaaSProductInfo.model_validate(content)
+                            else:
+                                raise ValueError(f"Unexpected content format: {type(content)}")
+                            
+                            # Create collected product (include PH metadata)
+                            collected = CollectedProduct(
+                                source="producthunt",
+                                seed_query=target.topics[0] if target.topics else "discovery",
+                                discovered_at=target.discovered_at,
+                                homepage_url=target.homepage_url,
+                                saashub_url=target.producthunt_url,  # Using this field for PH URL
+                                product_info=product_info,
+                                extraction_success=True,
+                                extracted_at=datetime.utcnow().isoformat() + "Z",
+                            )
+                            
+                            # Write to output
+                            self._write_product(collected)
+                            self.targets.mark_completed(target.id)
+                            stats["extracted"] += 1
+                            
+                            self._log(f"  Success: {product_info.name}")
+                            
+                        except json.JSONDecodeError as e:
+                            self._log(f"  JSON parse error: {e}")
+                            self.targets.mark_failed(target.id, f"JSON parse error: {e}")
+                            stats["failed"] += 1
+                            
+                        except Exception as e:
+                            error_str = str(e)
+                            is_rate_limit = "rate limit" in error_str.lower() or "429" in error_str
+                            
+                            self._log(f"  Parse error: {e}")
+                            
+                            if is_rate_limit:
+                                await self.rate_limiter.handle_rate_limit(RateLimitSource.OPENAI)
+                            
+                            self.targets.mark_failed(target.id, error_str)
+                            stats["failed"] += 1
+                    else:
+                        self._log(f"  No content extracted")
+                        self.targets.mark_failed(target.id, "No content extracted")
+                        stats["failed"] += 1
+                        
+                except Exception as e:
+                    error_str = str(e)
+                    is_rate_limit = "rate limit" in error_str.lower() or "429" in error_str
+                    
+                    self._log(f"  Exception: {e}")
+                    
+                    if is_rate_limit:
+                        await self.rate_limiter.handle_rate_limit(RateLimitSource.OPENAI)
+                    
+                    self.targets.mark_failed(target.id, error_str)
+                    stats["failed"] += 1
+        
+        # Final stats
+        list_stats = self.targets.get_stats()
+        stats["pending"] = list_stats["pending"]
+        
+        self._log(f"=== Extraction Complete ===")
+        self._log(f"Extracted: {stats['extracted']}, Failed: {stats['failed']}, Remaining: {stats['pending']}")
+        
+        return stats
+    
+    def _write_product(self, product: CollectedProduct):
+        """Append a product to the JSONL output file."""
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.output_path, "a") as f:
+            f.write(product.model_dump_json() + "\n")
+
+
+def main_legacy():
+    """Legacy CLI entry point (SaaSHub-based)."""
+    parser = argparse.ArgumentParser(
+        description="Market Intelligence Collector (Legacy - SaaSHub)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     
-    parser.add_argument(
-        "--seeds",
-        nargs="+",
-        help="Seed queries to use (overrides config file)"
-    )
-    parser.add_argument(
-        "--seeds-file",
-        type=Path,
-        default=DEFAULT_SEEDS_PATH,
-        help=f"Path to seeds YAML config (default: {DEFAULT_SEEDS_PATH})"
-    )
-    parser.add_argument(
-        "--state-file",
-        type=Path,
-        default=DEFAULT_STATE_PATH,
-        help=f"Path to state file (default: {DEFAULT_STATE_PATH})"
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        default=DEFAULT_OUTPUT_PATH,
-        help=f"Path to JSONL output file (default: {DEFAULT_OUTPUT_PATH})"
-    )
-    parser.add_argument(
-        "--skip-discovery",
-        action="store_true",
-        help="Skip SaaSHub API discovery phase"
-    )
-    parser.add_argument(
-        "--skip-homepages",
-        action="store_true",
-        help="Skip homepage URL discovery phase"
-    )
-    parser.add_argument(
-        "--skip-extraction",
-        action="store_true",
-        help="Skip LLM extraction phase"
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=5,
-        help="Concurrent extractions per batch (default: 5)"
-    )
-    parser.add_argument(
-        "--max-per-seed",
-        type=int,
-        default=50,
-        help="Max products to fetch per seed query (default: 50)"
-    )
-    parser.add_argument(
-        "--saashub-delay",
-        type=float,
-        default=12.0,
-        help="Seconds between SaaSHub API requests (default: 12.0)"
-    )
-    parser.add_argument(
-        "--llm-provider",
-        default="openai/gpt-4o",
-        help="LLM provider string (default: openai/gpt-4o)"
-    )
-    parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Enable verbose output"
-    )
-    parser.add_argument(
-        "--reset-state",
-        action="store_true",
-        help="Reset state and start fresh"
-    )
+    parser.add_argument("--seeds", nargs="+", help="Seed queries")
+    parser.add_argument("--seeds-file", type=Path, default=DEFAULT_SEEDS_PATH)
+    parser.add_argument("--state-file", type=Path, default=DEFAULT_STATE_PATH)
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH)
+    parser.add_argument("--skip-discovery", action="store_true")
+    parser.add_argument("--skip-homepages", action="store_true")
+    parser.add_argument("--skip-extraction", action="store_true")
+    parser.add_argument("--batch-size", type=int, default=5)
+    parser.add_argument("--max-per-seed", type=int, default=50)
+    parser.add_argument("--saashub-delay", type=float, default=12.0)
+    parser.add_argument("--llm-provider", default="openai/gpt-4o")
+    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("--reset-state", action="store_true")
     
     args = parser.parse_args()
     
-    # Reset state if requested
     if args.reset_state and args.state_file.exists():
         args.state_file.unlink()
         print(f"Reset state: {args.state_file}")
     
-    # Create collector
     collector = MarketIntelCollector(
         state_path=args.state_file,
         output_path=args.output,
@@ -598,7 +838,6 @@ Environment Variables:
         verbose=args.verbose,
     )
     
-    # Run collection
     try:
         stats = asyncio.run(collector.run(
             seeds=args.seeds,
@@ -626,6 +865,288 @@ Environment Variables:
         import traceback
         traceback.print_exc()
         sys.exit(1)
+
+
+def cmd_target_build(args):
+    """Handle target-build subcommand."""
+    collector = ProductHuntCollector(
+        targets_path=args.targets_file,
+        output_path=args.output,
+        min_votes=args.min_votes,
+        verbose=args.verbose,
+    )
+    
+    topics = args.topics if args.topics else None
+    
+    try:
+        stats = asyncio.run(collector.build_targets(
+            topics=topics,
+            max_per_source=args.max_per_source,
+            include_trending=not args.no_trending,
+            include_popular=not args.no_popular,
+        ))
+        
+        print("\n=== Target Building Complete ===")
+        print(json.dumps(stats, indent=2))
+        sys.exit(0)
+        
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user")
+        sys.exit(130)
+        
+    except Exception as e:
+        print(f"\nError: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+def cmd_extract(args):
+    """Handle extract subcommand."""
+    collector = ProductHuntCollector(
+        targets_path=args.targets_file,
+        output_path=args.output,
+        llm_provider=args.llm_provider,
+        verbose=args.verbose,
+    )
+    
+    max_targets = args.max_targets if args.max_targets > 0 else None
+    
+    try:
+        stats = asyncio.run(collector.extract_targets(
+            max_targets=max_targets,
+        ))
+        
+        print("\n=== Extraction Complete ===")
+        print(json.dumps(stats, indent=2))
+        sys.exit(0)
+        
+    except KeyboardInterrupt:
+        print("\n\nInterrupted by user")
+        sys.exit(130)
+        
+    except Exception as e:
+        print(f"\nError: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+def cmd_status(args):
+    """Handle status subcommand."""
+    targets = TargetManager(args.targets_file)
+    stats = targets.get_stats()
+    
+    total = stats['total']
+    completed = stats['completed']
+    progress = (completed / total * 100) if total > 0 else 0.0
+    
+    print("\n=== Target List Status ===")
+    print(f"Total targets:  {total}")
+    print(f"Pending:        {stats['pending']}")
+    print(f"Completed:      {completed}")
+    print(f"Failed:         {stats['failed']}")
+    print(f"No homepage:    {stats['no_homepage']}")
+    print(f"Progress:       {progress:.1f}%")
+    
+    if args.show_pending:
+        pending = list(targets.get_pending())[:args.limit]
+        if pending:
+            print(f"\n--- Pending Targets (showing {len(pending)}) ---")
+            for t in pending:
+                print(f"  • {t.name}: {t.homepage_url}")
+    
+    if args.show_failed:
+        failed = list(targets.get_failed())[:args.limit]
+        if failed:
+            print(f"\n--- Failed Targets (showing {len(failed)}) ---")
+            for t in failed:
+                reason = t.failure_reason or "Unknown"
+                error = reason[:50] + "..." if len(reason) > 50 else reason
+                print(f"  ✗ {t.name}: {error}")
+
+
+def cmd_reset(args):
+    """Handle reset subcommand."""
+    targets_file = Path(args.targets_file)
+    
+    if args.failed_only:
+        targets = TargetManager(targets_file)
+        count = targets.reset_all_failed()
+        print(f"Reset {count} failed targets to pending status")
+    else:
+        if targets_file.exists():
+            targets_file.unlink()
+            print(f"Removed: {targets_file}")
+        else:
+            print(f"No targets file found: {targets_file}")
+
+
+def main():
+    """Main CLI entry point with subcommands."""
+    parser = argparse.ArgumentParser(
+        description="Market Intelligence Collector - Gather structured data on SaaS products",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Commands:
+  target-build   Build target list from Product Hunt API
+  extract        Extract structured data from pending targets
+  status         Show target list status
+  reset          Reset targets (all or failed only)
+  legacy         Run legacy SaaSHub-based collection
+
+Examples:
+  # Build target list from Product Hunt
+  python -m crawl4ai.market_intel.collect target-build
+  
+  # Build with specific topics
+  python -m crawl4ai.market_intel.collect target-build --topics "Developer Tools" "Productivity"
+  
+  # Extract data from pending targets
+  python -m crawl4ai.market_intel.collect extract
+  
+  # Extract limited batch
+  python -m crawl4ai.market_intel.collect extract --max-targets 10
+  
+  # Check status
+  python -m crawl4ai.market_intel.collect status --show-pending
+  
+  # Reset failed targets
+  python -m crawl4ai.market_intel.collect reset --failed-only
+
+Environment Variables:
+  PRODUCTHUNT_ACCESS_TOKEN   Product Hunt API token (required for target-build)
+  OPENAI_API_KEY             OpenAI API key (required for extract)
+        """
+    )
+    
+    # Global arguments
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output")
+    
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    
+    # target-build command
+    build_parser = subparsers.add_parser(
+        "target-build",
+        help="Build target list from Product Hunt",
+        description="Query Product Hunt API for trending/popular SaaS products and add to targets list."
+    )
+    build_parser.add_argument("--topics", nargs="+", help="Topics to discover from")
+    build_parser.add_argument("--max-per-source", type=int, default=100, help="Max products per source")
+    build_parser.add_argument("--min-votes", type=int, default=20, help="Minimum votes threshold")
+    build_parser.add_argument("--no-trending", action="store_true", help="Skip trending products")
+    build_parser.add_argument("--no-popular", action="store_true", help="Skip popular products")
+    build_parser.add_argument("--targets-file", type=Path, default=DEFAULT_TARGETS_PATH)
+    build_parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH)
+    build_parser.set_defaults(func=cmd_target_build)
+    
+    # extract command
+    extract_parser = subparsers.add_parser(
+        "extract",
+        help="Extract structured data from pending targets",
+        description="Scrape product homepages and extract structured data using LLM."
+    )
+    extract_parser.add_argument("--max-targets", type=int, default=0, help="Max targets to process (0 for all)")
+    extract_parser.add_argument("--llm-provider", default="openai/gpt-4o", help="LLM provider string")
+    extract_parser.add_argument("--targets-file", type=Path, default=DEFAULT_TARGETS_PATH)
+    extract_parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH)
+    extract_parser.set_defaults(func=cmd_extract)
+    
+    # status command
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Show target list status",
+        description="Display statistics about the target list."
+    )
+    status_parser.add_argument("--show-pending", action="store_true", help="List pending targets")
+    status_parser.add_argument("--show-failed", action="store_true", help="List failed targets")
+    status_parser.add_argument("--limit", type=int, default=20, help="Max items to show per list")
+    status_parser.add_argument("--targets-file", type=Path, default=DEFAULT_TARGETS_PATH)
+    status_parser.set_defaults(func=cmd_status)
+    
+    # reset command
+    reset_parser = subparsers.add_parser(
+        "reset",
+        help="Reset targets",
+        description="Reset target list (all or failed only)."
+    )
+    reset_parser.add_argument("--failed-only", action="store_true", help="Only reset failed targets")
+    reset_parser.add_argument("--targets-file", type=Path, default=DEFAULT_TARGETS_PATH)
+    reset_parser.set_defaults(func=cmd_reset)
+    
+    # legacy command
+    legacy_parser = subparsers.add_parser(
+        "legacy",
+        help="Run legacy SaaSHub-based collection",
+        description="Original SaaSHub-based collection pipeline (deprecated)."
+    )
+    legacy_parser.add_argument("--seeds", nargs="+", help="Seed queries")
+    legacy_parser.add_argument("--seeds-file", type=Path, default=DEFAULT_SEEDS_PATH)
+    legacy_parser.add_argument("--state-file", type=Path, default=DEFAULT_STATE_PATH)
+    legacy_parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH)
+    legacy_parser.add_argument("--skip-discovery", action="store_true")
+    legacy_parser.add_argument("--skip-homepages", action="store_true")
+    legacy_parser.add_argument("--skip-extraction", action="store_true")
+    legacy_parser.add_argument("--batch-size", type=int, default=5)
+    legacy_parser.add_argument("--max-per-seed", type=int, default=50)
+    legacy_parser.add_argument("--saashub-delay", type=float, default=12.0)
+    legacy_parser.add_argument("--llm-provider", default="openai/gpt-4o")
+    legacy_parser.add_argument("--reset-state", action="store_true")
+    
+    args = parser.parse_args()
+    
+    # Handle no command
+    if not args.command:
+        parser.print_help()
+        sys.exit(0)
+    
+    # Handle legacy command separately (different arg structure)
+    if args.command == "legacy":
+        if args.reset_state and args.state_file.exists():
+            args.state_file.unlink()
+            print(f"Reset state: {args.state_file}")
+        
+        collector = MarketIntelCollector(
+            state_path=args.state_file,
+            output_path=args.output,
+            seeds_path=args.seeds_file,
+            saashub_delay=args.saashub_delay,
+            llm_provider=args.llm_provider,
+            batch_size=args.batch_size,
+            max_products_per_seed=args.max_per_seed,
+            verbose=args.verbose,
+        )
+        
+        try:
+            stats = asyncio.run(collector.run(
+                seeds=args.seeds,
+                skip_discovery=args.skip_discovery,
+                skip_homepages=args.skip_homepages,
+                skip_extraction=args.skip_extraction,
+            ))
+            
+            print("\n=== Collection Complete ===")
+            print(json.dumps(stats, indent=2))
+            
+            if stats.get("halted"):
+                print(f"\n⚠️  Collection halted: {stats.get('halt_reason')}")
+                sys.exit(1)
+            
+            sys.exit(0)
+            
+        except KeyboardInterrupt:
+            print("\n\nInterrupted by user")
+            collector.save_state()
+            sys.exit(130)
+            
+        except Exception as e:
+            print(f"\nError: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+    
+    # Run the appropriate command handler
+    args.func(args)
 
 
 if __name__ == "__main__":
