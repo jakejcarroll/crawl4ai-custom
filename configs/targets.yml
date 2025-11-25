@@ -1,0 +1,543 @@
+- name: Trello
+  homepage_url: https://trello.com/
+  source:
+    type: saashub
+    seed_query: notion
+    saashub_url: https://www.saashub.com/trello
+    saashub_id: 8493346fb012
+- name: Jira
+  homepage_url: https://www.atlassian.com/software/jira/agile
+  source:
+    type: saashub
+    seed_query: notion
+    saashub_url: https://www.saashub.com/jira
+    saashub_id: 30df1476cd55
+- name: Asana
+  homepage_url: https://asana.com/
+  source:
+    type: saashub
+    seed_query: notion
+    saashub_url: https://www.saashub.com/asana
+    saashub_id: cab5d7b9e2b4
+- name: Productboard
+  homepage_url: https://www.productboard.com/
+  source:
+    type: manual
+    seed_query: product-management
+    reason: "Product definition and roadmapping tool"
+- name: Aha!
+  homepage_url: https://www.aha.io/
+  source:
+    type: manual
+    seed_query: product-management
+    reason: "Product roadmapping and strategy platform"
+- name: Typeform
+  homepage_url: https://www.typeform.com/
+  source:
+    type: manual
+    seed_query: market-research
+    reason: "Survey and form building for market research"
+- name: SurveyMonkey
+  homepage_url: https://www.surveymonkey.com/
+  source:
+    type: manual
+    seed_query: market-research
+    reason: "Online survey platform for market intelligence"
+- name: Hotjar
+  homepage_url: https://www.hotjar.com/
+  source:
+    type: manual
+    seed_query: market-research
+    reason: "Heatmaps and behavior analytics for user research"
+- name: Zapier
+  homepage_url: https://zapier.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Automation platform for indie hackers and solopreneurs"
+- name: Airtable
+  homepage_url: https://www.airtable.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "No-code database and workflow tool"
+- name: Webflow
+  homepage_url: https://webflow.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "No-code website builder for founders"
+- name: Postman
+  homepage_url: https://www.postman.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "API development and documentation tool"
+- name: ReadMe
+  homepage_url: https://www.readme.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "API documentation platform"
+- name: GitBook
+  homepage_url: https://www.gitbook.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Documentation and knowledge base platform"
+- name: Notion
+  homepage_url: https://www.notion.so/
+  source:
+    type: manual
+    seed_query: product-management
+    reason: "All-in-one workspace for product teams"
+- name: Linear
+  homepage_url: https://linear.app/
+  source:
+    type: manual
+    seed_query: product-management
+    reason: "Issue tracking and project management"
+- name: Figma
+  homepage_url: https://www.figma.com/
+  source:
+    type: manual
+    seed_query: product-design
+    reason: "Collaborative design and prototyping"
+- name: Miro
+  homepage_url: https://miro.com/
+  source:
+    type: manual
+    seed_query: product-design
+    reason: "Online whiteboard for collaborative design"
+- name: Mixpanel
+  homepage_url: https://mixpanel.com/
+  source:
+    type: manual
+    seed_query: market-research
+    reason: "Product analytics and user behavior tracking"
+- name: Amplitude
+  homepage_url: https://www.amplitude.com/
+  source:
+    type: manual
+    seed_query: market-research
+    reason: "Product analytics and insights platform"
+- name: UserTesting
+  homepage_url: https://www.usertesting.com/
+  source:
+    type: manual
+    seed_query: market-research
+    reason: "User testing and feedback platform"
+- name: Calendly
+  homepage_url: https://calendly.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Scheduling automation for solopreneurs"
+- name: Buffer
+  homepage_url: https://buffer.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Social media management for small teams"
+- name: Mailchimp
+  homepage_url: https://mailchimp.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Email marketing platform for founders"
+- name: Substack
+  homepage_url: https://substack.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Newsletter platform for content creators"
+- name: GitHub
+  homepage_url: https://github.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Code hosting and collaboration platform"
+- name: Vercel
+  homepage_url: https://vercel.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Frontend deployment and serverless platform"
+- name: Netlify
+  homepage_url: https://www.netlify.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Jamstack deployment platform"
+- name: Stripe
+  homepage_url: https://stripe.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Payment processing for startups"
+- name: Twilio
+  homepage_url: https://www.twilio.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Communications API for developers"
+- name: Slack
+  homepage_url: https://slack.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Team communication for remote teams"
+- name: Discord
+  homepage_url: https://discord.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Community building for creators"
+- name: ClickUp
+  homepage_url: https://clickup.com/
+  source:
+    type: manual
+    seed_query: product-management
+    reason: "All-in-one productivity platform"
+- name: Monday.com
+  homepage_url: https://monday.com/
+  source:
+    type: manual
+    seed_query: product-management
+    reason: "Work management and collaboration"
+- name: Basecamp
+  homepage_url: https://basecamp.com/
+  source:
+    type: manual
+    seed_query: product-management
+    reason: "Project management and team collaboration"
+- name: Framer
+  homepage_url: https://www.framer.com/
+  source:
+    type: manual
+    seed_query: product-design
+    reason: "Interactive design and prototyping"
+- name: Sketch
+  homepage_url: https://www.sketch.com/
+  source:
+    type: manual
+    seed_query: product-design
+    reason: "Digital design platform"
+- name: Adobe XD
+  homepage_url: https://www.adobe.com/products/xd.html
+  source:
+    type: manual
+    seed_query: product-design
+    reason: "UI/UX design and prototyping"
+- name: InVision
+  homepage_url: https://www.invisionapp.com/
+  source:
+    type: manual
+    seed_query: product-design
+    reason: "Digital product design platform"
+- name: Mural
+  homepage_url: https://mural.co/
+  source:
+    type: manual
+    seed_query: product-design
+    reason: "Online whiteboard and collaboration"
+- name: Canva
+  homepage_url: https://www.canva.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Graphic design platform for non-designers"
+- name: Loom
+  homepage_url: https://www.loom.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Video messaging and screen recording"
+- name: Notion AI
+  homepage_url: https://www.notion.so/product/ai
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "AI-powered writing and productivity"
+- name: OpenAI
+  homepage_url: https://openai.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "AI platform for developers"
+- name: Anthropic
+  homepage_url: https://www.anthropic.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "AI research and Claude API"
+- name: Replit
+  homepage_url: https://replit.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Online IDE and coding platform"
+- name: CodePen
+  homepage_url: https://codepen.io/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Online code editor and community"
+- name: StackBlitz
+  homepage_url: https://stackblitz.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Online development environment"
+- name: Glitch
+  homepage_url: https://glitch.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Web app development platform"
+- name: Heroku
+  homepage_url: https://www.heroku.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Cloud platform for startups"
+- name: DigitalOcean
+  homepage_url: https://www.digitalocean.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Cloud infrastructure for developers"
+- name: Supabase
+  homepage_url: https://supabase.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Open source Firebase alternative"
+- name: Firebase
+  homepage_url: https://firebase.google.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Backend development platform"
+- name: Algolia
+  homepage_url: https://www.algolia.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Search and discovery API"
+- name: Sentry
+  homepage_url: https://sentry.io/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Error monitoring and debugging"
+- name: Datadog
+  homepage_url: https://www.datadoghq.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Monitoring and analytics platform"
+- name: New Relic
+  homepage_url: https://newrelic.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Application performance monitoring"
+- name: PagerDuty
+  homepage_url: https://www.pagerduty.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Incident management and response"
+- name: CircleCI
+  homepage_url: https://circleci.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Continuous integration and deployment"
+- name: Travis CI
+  homepage_url: https://www.travis-ci.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Continuous integration platform"
+- name: Jenkins
+  homepage_url: https://www.jenkins.io/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Open source automation server"
+- name: Docker
+  homepage_url: https://www.docker.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Container platform for developers"
+- name: Kubernetes
+  homepage_url: https://kubernetes.io/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Container orchestration platform"
+- name: Terraform
+  homepage_url: https://www.terraform.io/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Infrastructure as code tool"
+- name: Ansible
+  homepage_url: https://www.ansible.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Automation and configuration management"
+- name: Puppet
+  homepage_url: https://www.puppet.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Infrastructure automation platform"
+- name: Chef
+  homepage_url: https://www.chef.io/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Infrastructure automation framework"
+- name: Grafana
+  homepage_url: https://grafana.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Observability and monitoring platform"
+- name: Prometheus
+  homepage_url: https://prometheus.io/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Monitoring and alerting toolkit"
+- name: Elastic Stack
+  homepage_url: https://www.elastic.co/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Search and analytics platform"
+- name: MongoDB
+  homepage_url: https://www.mongodb.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Document database platform"
+- name: PostgreSQL
+  homepage_url: https://www.postgresql.org/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Open source relational database"
+- name: Redis
+  homepage_url: https://redis.io/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "In-memory data structure store"
+- name: RabbitMQ
+  homepage_url: https://www.rabbitmq.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Message queuing and streaming"
+- name: Apache Kafka
+  homepage_url: https://kafka.apache.org/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Distributed streaming platform"
+- name: AWS
+  homepage_url: https://aws.amazon.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Cloud computing platform"
+- name: Google Cloud
+  homepage_url: https://cloud.google.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Cloud computing services"
+- name: Azure
+  homepage_url: https://azure.microsoft.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Microsoft cloud platform"
+- name: Cloudflare
+  homepage_url: https://www.cloudflare.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Content delivery and security"
+- name: Fastly
+  homepage_url: https://www.fastly.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Edge cloud platform"
+- name: Akamai
+  homepage_url: https://www.akamai.com/
+  source:
+    type: manual
+    seed_query: vibe-coding
+    reason: "Content delivery and cloud security"
+- name: Shopify
+  homepage_url: https://www.shopify.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "E-commerce platform for entrepreneurs"
+- name: WooCommerce
+  homepage_url: https://woocommerce.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Open source e-commerce platform"
+- name: BigCommerce
+  homepage_url: https://www.bigcommerce.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "E-commerce platform for growing businesses"
+- name: Magento
+  homepage_url: https://magento.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Open source e-commerce platform"
+- name: Salesforce
+  homepage_url: https://www.salesforce.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "CRM and customer relationship management"
+- name: HubSpot
+  homepage_url: https://www.hubspot.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Inbound marketing and sales platform"
+- name: Pipedrive
+  homepage_url: https://www.pipedrive.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Sales CRM and pipeline management"
+- name: Intercom
+  homepage_url: https://www.intercom.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Customer messaging and support"
+- name: Zendesk
+  homepage_url: https://www.zendesk.com/
+  source:
+    type: manual
+    seed_query: solo-founder
+    reason: "Customer service and support platform"
