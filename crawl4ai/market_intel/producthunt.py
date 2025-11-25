@@ -7,14 +7,20 @@ Uses the Product Hunt GraphQL API to fetch:
 - Product details including homepage URL
 
 Rate limit: 500 requests per 15 minutes
+
+Note: The Product Hunt API returns tracking/redirect URLs for the `website` field.
+To get actual homepage URLs, we scrape the Product Hunt launch page and extract
+the real website from the page HTML.
 """
 
 import asyncio
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, List, Dict, Any, AsyncGenerator
+from urllib.parse import urlparse
 
 import httpx
 
@@ -521,6 +527,181 @@ class ProductHuntClient:
                 break
             
             cursor = page_info.get("endCursor")
+
+    async def resolve_homepage_url(
+        self,
+        product: ProductHuntProduct,
+    ) -> Optional[str]:
+        """
+        Resolve the actual homepage URL for a product.
+        
+        The Product Hunt API returns tracking/redirect URLs (e.g., /r/ABC123) 
+        instead of actual website URLs. This method scrapes the Product Hunt 
+        launch page to extract the real homepage URL.
+        
+        Args:
+            product: The ProductHuntProduct to resolve
+            
+        Returns:
+            The resolved homepage URL, or None if not found
+        """
+        if not product.producthunt_url:
+            return None
+        
+        # Strip tracking params from PH URL
+        ph_url = product.producthunt_url.split("?")[0]
+        
+        try:
+            # Use crawl4ai to fetch the page (handles JS rendering)
+            from crawl4ai import AsyncWebCrawler, CrawlerRunConfig
+            
+            config = CrawlerRunConfig(
+                wait_until="domcontentloaded",
+                page_timeout=30000,
+                delay_before_return_html=1.0,
+            )
+            
+            async with AsyncWebCrawler(verbose=False) as crawler:
+                result = await crawler.arun(url=ph_url, config=config)
+                
+                if not result.html:
+                    logger.warning(f"No HTML returned for {ph_url}")
+                    return None
+                
+                # Extract external URLs from the HTML
+                # Look for https:// URLs that are NOT producthunt.com
+                external_urls = re.findall(
+                    r'https?://(?!(?:www\.)?producthunt\.com)[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-z]{2,}(?:/[^\s"\'<>]*)?',
+                    result.html
+                )
+                
+                if not external_urls:
+                    logger.warning(f"No external URLs found on {ph_url}")
+                    return None
+                
+                # Filter out common non-product URLs
+                skip_domains = {
+                    "schema.org", "w3.org", "google.com", "googletagmanager.com",
+                    "facebook.com", "twitter.com", "x.com", "linkedin.com",
+                    "youtube.com", "youtu.be", "instagram.com", "github.com", "cloudflare.com",
+                    "cloudflareinsights.com", "segment.com", "imgix.net", "lu.ma",
+                    "fonts.googleapis.com", "fonts.gstatic.com", "segment-cdn.producthunt.com",
+                    # Mobile app stores and deep links
+                    "producthunt.app.link", "apps.apple.com", "play.google.com",
+                    "itunes.apple.com", "appstore.com", "onelink.me", "branch.io",
+                    "adjust.com", "app.link", "appsto.re",
+                    # Other PH internal URLs
+                    "help.producthunt.com", "ph-static.imgix.net", "ph-files.imgix.net",
+                    "ph-avatars.imgix.net",
+                }
+                
+                # Find the best candidate URL
+                # Priority: exact domain match with product slug/name
+                product_name_lower = product.name.lower().replace(" ", "").replace("-", "")
+                slug_lower = (product.slug or "").lower().replace("-", "")
+                
+                # Also create variants without numbers (e.g., "cursor2.0" -> "cursor")
+                name_no_numbers = ''.join(c for c in product_name_lower if not c.isdigit())
+                slug_no_numbers = ''.join(c for c in slug_lower if not c.isdigit())
+                
+                candidates = []
+                for url in external_urls:
+                    try:
+                        parsed = urlparse(url)
+                        domain = parsed.netloc.lower()
+                        
+                        # Skip known non-product domains
+                        if any(skip in domain for skip in skip_domains):
+                            continue
+                        
+                        # Skip if path looks like an asset
+                        path = parsed.path.lower()
+                        if any(ext in path for ext in [".png", ".jpg", ".svg", ".gif", ".css", ".js"]):
+                            continue
+                        
+                        # Normalize domain (remove www.)
+                        clean_domain = domain.replace("www.", "")
+                        domain_base = clean_domain.split(".")[0]
+                        
+                        # Score based on name match (higher = better)
+                        score = 0
+                        
+                        # Exact match with slug or name (highest priority)
+                        if domain_base == slug_lower or domain_base == product_name_lower:
+                            score = 1000  # Exact match
+                        elif domain_base == slug_no_numbers or domain_base == name_no_numbers:
+                            score = 900  # Match without version numbers
+                        # Partial match - name/slug contained in domain
+                        elif len(slug_lower) > 3 and slug_lower in domain_base:
+                            score = 500
+                        elif len(name_no_numbers) > 3 and name_no_numbers in domain_base:
+                            score = 400
+                        # Domain contained in name/slug (less reliable)
+                        elif len(domain_base) > 3 and domain_base in slug_lower:
+                            score = 200
+                        elif len(domain_base) > 3 and domain_base in name_no_numbers:
+                            score = 150
+                        else:
+                            # No match - low priority but still a candidate
+                            score = 1
+                        
+                        candidates.append((score, f"https://{clean_domain}"))
+                    except Exception:
+                        continue
+                
+                if not candidates:
+                    return None
+                
+                # Return the highest-scoring unique URL
+                # Only return URLs with a decent score (at least partial match)
+                candidates.sort(reverse=True)
+                seen = set()
+                for score, url in candidates:
+                    if url not in seen:
+                        # Only return if we have at least a partial match (score >= 100)
+                        # Otherwise, it's too risky
+                        if score >= 100:
+                            logger.debug(f"Resolved homepage for {product.name}: {url} (score={score})")
+                            return url
+                        else:
+                            # Log that we're skipping a low-confidence match
+                            logger.debug(f"Skipping low-confidence URL for {product.name}: {url} (score={score})")
+                    seen.add(url)
+                
+                return None
+                
+        except Exception as e:
+            logger.warning(f"Failed to resolve homepage for {product.name}: {e}")
+            return None
+    
+    async def resolve_homepage_urls_batch(
+        self,
+        products: List[ProductHuntProduct],
+        concurrency: int = 3,
+    ) -> Dict[str, str]:
+        """
+        Resolve homepage URLs for multiple products in parallel.
+        
+        Args:
+            products: List of ProductHuntProduct objects
+            concurrency: Max concurrent resolutions (be gentle with PH servers)
+            
+        Returns:
+            Dict mapping product ID to resolved homepage URL
+        """
+        semaphore = asyncio.Semaphore(concurrency)
+        results = {}
+        
+        async def resolve_one(product: ProductHuntProduct):
+            async with semaphore:
+                url = await self.resolve_homepage_url(product)
+                if url:
+                    results[product.id] = url
+                # Small delay between requests
+                await asyncio.sleep(0.5)
+        
+        await asyncio.gather(*[resolve_one(p) for p in products])
+        return results
 
 
 # Priority topics for SaaS/B2B product discovery

@@ -552,15 +552,21 @@ class ProductHuntCollector:
         max_per_source: int = 100,
         include_trending: bool = True,
         include_popular: bool = True,
+        resolve_urls: bool = True,
     ) -> Dict[str, Any]:
         """
         Phase 1: Build target list from Product Hunt.
+        
+        The Product Hunt API returns tracking/redirect URLs instead of actual
+        website URLs. We resolve these by scraping the Product Hunt launch page
+        for each product to extract the real homepage URL.
         
         Args:
             topics: Optional list of topics to discover from
             max_per_source: Max products to fetch per source
             include_trending: Include trending products
             include_popular: Include popular products
+            resolve_urls: Whether to resolve redirect URLs to actual homepages
             
         Returns:
             Discovery statistics
@@ -570,14 +576,19 @@ class ProductHuntCollector:
         
         stats = {
             "discovered": 0,
+            "resolved": 0,
             "added": 0,
             "duplicates": 0,
+            "unresolved": 0,
         }
         
         self._log("=== Building Target List from Product Hunt ===")
         
         # Use topics from priority list if not specified
         topic_list = topics if topics else PRIORITY_TOPICS[:5]  # Top 5 by default
+        
+        # Collect all products first
+        all_products: List[ProductHuntProduct] = []
         
         async with ProductHuntClient(
             access_token=self.producthunt_token,
@@ -588,33 +599,62 @@ class ProductHuntCollector:
             if include_popular:
                 self._log("Fetching popular products...")
                 async for product in client.get_popular_products(limit=max_per_source):
-                    if self._add_product_as_target(product):
-                        stats["added"] += 1
-                    else:
-                        stats["duplicates"] += 1
+                    all_products.append(product)
                     stats["discovered"] += 1
             
             # Collect trending products
             if include_trending:
                 self._log("Fetching trending products...")
                 async for product in client.get_trending_products(limit=max_per_source):
-                    if self._add_product_as_target(product):
-                        stats["added"] += 1
-                    else:
-                        stats["duplicates"] += 1
+                    all_products.append(product)
                     stats["discovered"] += 1
             
             # Collect by topics
             for topic in topic_list:
                 self._log(f"Fetching products for topic: {topic}")
                 async for product in client.get_products_by_topic(topic, limit=max_per_source):
-                    if self._add_product_as_target(product):
-                        stats["added"] += 1
-                    else:
-                        stats["duplicates"] += 1
+                    all_products.append(product)
                     stats["discovered"] += 1
+            
+            # Deduplicate by ID
+            seen_ids = set()
+            unique_products = []
+            for p in all_products:
+                if p.id not in seen_ids:
+                    seen_ids.add(p.id)
+                    unique_products.append(p)
+            
+            self._log(f"Discovered {len(unique_products)} unique products")
+            
+            # Resolve actual homepage URLs
+            if resolve_urls:
+                self._log("Resolving actual homepage URLs (this may take a while)...")
+                resolved_urls = await client.resolve_homepage_urls_batch(
+                    unique_products,
+                    concurrency=3,  # Be gentle with PH servers
+                )
+                stats["resolved"] = len(resolved_urls)
+                self._log(f"Resolved {len(resolved_urls)} homepage URLs")
+                
+                # Update products with resolved URLs
+                for product in unique_products:
+                    if product.id in resolved_urls:
+                        product.homepage_url = resolved_urls[product.id]
+            
+            # Add products as targets
+            for product in unique_products:
+                if self._add_product_as_target(product):
+                    stats["added"] += 1
+                else:
+                    stats["duplicates"] += 1
+                
+                # Track unresolved
+                if not product.homepage_url or "producthunt.com/r/" in (product.homepage_url or ""):
+                    stats["unresolved"] += 1
         
         self._log(f"Added {stats['added']} new targets, {stats['duplicates']} duplicates skipped")
+        if stats["unresolved"] > 0:
+            self._log(f"Warning: {stats['unresolved']} products could not be resolved to actual URLs")
         
         # Get current stats
         list_stats = self.targets.get_stats()
@@ -628,8 +668,12 @@ class ProductHuntCollector:
     
     def _add_product_as_target(self, product: ProductHuntProduct) -> bool:
         """Add a ProductHuntProduct as a target. Returns True if added, False if duplicate."""
-        # Skip if no homepage URL
+        # Skip if no homepage URL or if it's still a redirect URL
         if not product.homepage_url:
+            return False
+        
+        # Skip if it's still a Product Hunt redirect URL (not resolved)
+        if "producthunt.com/r/" in product.homepage_url:
             return False
         
         target = Target.from_producthunt(product)
@@ -884,6 +928,7 @@ def cmd_target_build(args):
             max_per_source=args.max_per_source,
             include_trending=not args.no_trending,
             include_popular=not args.no_popular,
+            resolve_urls=not args.no_resolve,
         ))
         
         print("\n=== Target Building Complete ===")
@@ -1036,6 +1081,7 @@ Environment Variables:
     build_parser.add_argument("--min-votes", type=int, default=20, help="Minimum votes threshold")
     build_parser.add_argument("--no-trending", action="store_true", help="Skip trending products")
     build_parser.add_argument("--no-popular", action="store_true", help="Skip popular products")
+    build_parser.add_argument("--no-resolve", action="store_true", help="Skip URL resolution (use raw API URLs)")
     build_parser.add_argument("--targets-file", type=Path, default=DEFAULT_TARGETS_PATH)
     build_parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH)
     build_parser.set_defaults(func=cmd_target_build)
