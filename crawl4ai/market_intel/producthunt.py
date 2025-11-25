@@ -198,7 +198,10 @@ class ProductHuntTopic:
 
 class ProductHuntAPIError(Exception):
     """Error from the Product Hunt API."""
-    pass
+    
+    def __init__(self, message: str, retry_after: Optional[int] = None):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class ProductHuntClient:
@@ -292,10 +295,17 @@ class ProductHuntClient:
             )
             
             if response.status_code == 429:
-                # Rate limited
-                retry_after = response.headers.get("retry-after")
+                # Rate limited - extract retry-after as integer
+                retry_after_str = response.headers.get("retry-after")
+                retry_after = None
+                if retry_after_str:
+                    try:
+                        retry_after = int(retry_after_str)
+                    except ValueError:
+                        pass
                 raise ProductHuntAPIError(
-                    f"Rate limited (429). Retry after: {retry_after}s"
+                    f"Rate limited (429). Retry after: {retry_after_str}s",
+                    retry_after=retry_after
                 )
             
             response.raise_for_status()
@@ -335,8 +345,8 @@ class ProductHuntClient:
         fetched = 0
         
         while fetched < limit:
-            # Fetch a page
-            page_size = min(50, limit - fetched)  # API max is 50 per page
+            # Fetch a page (reduced from 50 to 20 to stay under API complexity limit)
+            page_size = min(20, limit - fetched)
             
             variables = {
                 "first": page_size,
@@ -394,7 +404,8 @@ class ProductHuntClient:
         fetched = 0
         
         while fetched < limit:
-            page_size = min(50, limit - fetched)
+            # Reduced from 50 to 20 to stay under API complexity limit
+            page_size = min(20, limit - fetched)
             
             variables = {
                 "first": page_size,
@@ -447,7 +458,8 @@ class ProductHuntClient:
         fetched = 0
         
         while fetched < limit:
-            page_size = min(50, limit - fetched)
+            # Reduced from 50 to 20 to stay under API complexity limit
+            page_size = min(20, limit - fetched)
             
             variables = {
                 "first": page_size,
@@ -498,7 +510,8 @@ class ProductHuntClient:
         fetched = 0
         
         while fetched < limit:
-            page_size = min(50, limit - fetched)
+            # Reduced from 50 to 20 to stay under API complexity limit
+            page_size = min(20, limit - fetched)
             
             variables = {
                 "first": page_size,

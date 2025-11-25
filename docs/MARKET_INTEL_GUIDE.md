@@ -11,8 +11,8 @@
 export PRODUCTHUNT_ACCESS_TOKEN="your-token"  # Get from https://www.producthunt.com/v2/oauth/applications
 export OPENAI_API_KEY="sk-..."
 
-# 2. Build target list from Product Hunt
-python -m crawl4ai.market_intel.collect target-build -v
+# 2. Build target list from Product Hunt (fast mode - skip URL resolution)
+python -m crawl4ai.market_intel.collect target-build --no-resolve -v
 
 # 3. Check status
 python -m crawl4ai.market_intel.collect status
@@ -60,15 +60,15 @@ Phase 1: Target Building                 Phase 2: Data Extraction
 
 ```
 crawl4ai/market_intel/
-├── __init__.py          # Module exports
+├── __init__.py          # Module exports (collect.py excluded - CLI only)
 ├── collect.py           # CLI orchestrator with subcommands
 ├── producthunt.py       # Product Hunt GraphQL client
-├── rate_limiter.py      # Resilient rate limiting with auto-recovery
+├── rate_limiter.py      # Reactive rate limiting (pause only on 429)
 ├── targets.py           # Target list manager (JSONL storage)
 ├── schemas.py           # Pydantic models for LLM extraction
 ├── state.py             # Legacy state management
 ├── saashub.py           # Legacy SaaSHub client
-└── url_discovery.py     # Legacy homepage URL extraction
+└── url_discovery.py     # Homepage URL resolution
 
 targets/
 └── targets.jsonl        # Target list (created during collection)
@@ -86,18 +86,22 @@ data/
 Query Product Hunt API and add products to the target list.
 
 ```bash
-# Basic usage - discover trending and popular products
+# Basic usage - discover trending and popular products (fast mode)
+python -m crawl4ai.market_intel.collect target-build --no-resolve -v
+
+# With URL resolution (slower but gets final homepage URLs)
 python -m crawl4ai.market_intel.collect target-build -v
 
 # With specific topics
 python -m crawl4ai.market_intel.collect target-build \
-  --topics "Developer Tools" "Productivity" "SaaS" -v
+  --topics "Developer Tools" "Productivity" "SaaS" --no-resolve -v
 
 # Control discovery scope
 python -m crawl4ai.market_intel.collect target-build \
   --max-per-source 50 \
   --min-votes 50 \
   --no-trending \
+  --no-resolve \
   -v
 ```
 
@@ -109,6 +113,7 @@ python -m crawl4ai.market_intel.collect target-build \
 | `--min-votes` | 20 | Minimum votes to include product |
 | `--no-trending` | false | Skip trending products |
 | `--no-popular` | false | Skip popular products |
+| `--no-resolve` | false | Skip URL resolution (faster, uses Product Hunt redirect URLs) |
 | `--targets-file` | targets/targets.jsonl | Target list file |
 
 ### `extract` - Extract Product Data
@@ -134,6 +139,14 @@ python -m crawl4ai.market_intel.collect extract \
 | `--llm-provider` | openai/gpt-4o | LLM for extraction |
 | `--targets-file` | targets/targets.jsonl | Target list file |
 | `--output` | data/market_intel_products.jsonl | Output file |
+
+**Performance Optimizations:**
+The extraction phase uses optimized Crawl4AI settings for faster scraping:
+- `text_mode=True` - Skip image loading
+- `light_mode=True` - Minimal browser features
+- `PruningContentFilter` - Remove boilerplate content
+- `excluded_tags` - Skip nav, footer, header, aside elements
+- `page_timeout=30000` - 30 second timeout (reduced from default)
 
 ### `status` - Check Progress
 
@@ -182,16 +195,20 @@ python -m crawl4ai.market_intel.collect legacy --seeds notion slack -v
 
 ---
 
-## Rate Limits
+## Rate Limiting
+
+### Reactive Rate Limiting
+
+The rate limiter uses a **reactive approach** - it only pauses when an actual 429 error is received, rather than proactively throttling requests. This maximizes throughput while still handling rate limits gracefully.
 
 ### Product Hunt API
-- **Limit**: 500 requests per 15 minutes
-- **Behavior**: Auto-pause for 15 minutes on 429, then resume
-- **Min interval**: 1.8 seconds between requests
+- **Limit**: ~6250 requests per 15 minutes (generous)
+- **Behavior**: On 429, pause for `retry-after` header value (or 60s default)
+- **Auto-recovery**: Automatically resumes after pause
 
 ### OpenAI API
 - **Behavior**: Exponential backoff starting at 60 seconds
-- **Max backoff**: 10 minutes
+- **Max backoff**: 5 minutes
 - **Auto-recovery**: Continues after rate limit clears
 
 ---
@@ -259,10 +276,10 @@ Get token from https://www.producthunt.com/v2/oauth/applications
 
 ### Issue: Rate limited by Product Hunt (429)
 
-The system auto-recovers. Just wait 15 minutes or let it run.
+The system auto-recovers. It will pause for 60 seconds (or the `retry-after` value) then resume.
 
 ```
-[WARNING] Rate limited! Pausing for 900s. Will resume at 2025-11-25T10:30:00Z
+[WARNING] Rate limited! Pausing for 60s. Will resume at 2025-11-25T10:01:00Z
 ```
 
 ### Issue: OpenAI rate limit errors
@@ -276,7 +293,7 @@ Uses exponential backoff automatically. If persistent:
 
 Build targets first:
 ```bash
-python -m crawl4ai.market_intel.collect target-build -v
+python -m crawl4ai.market_intel.collect target-build --no-resolve -v
 ```
 
 ### Issue: Many failed extractions
@@ -291,6 +308,10 @@ Reset and retry:
 python -m crawl4ai.market_intel.collect reset --failed-only
 python -m crawl4ai.market_intel.collect extract -v
 ```
+
+### Issue: RuntimeWarning about 'crawl4ai.market_intel.collect'
+
+This warning has been fixed. If you see it, ensure you have the latest version where `collect.py` is not imported in `__init__.py`.
 
 ---
 
@@ -329,15 +350,12 @@ PRIORITY_TOPICS = [
 
 ```python
 import asyncio
-from crawl4ai.market_intel import (
-    ProductHuntClient,
-    TargetManager,
-    Target,
-    RateLimiter,
-)
+from crawl4ai.market_intel.producthunt import ProductHuntClient, PRIORITY_TOPICS
+from crawl4ai.market_intel.targets import TargetManager, Target
+from crawl4ai.market_intel.rate_limiter import RateLimiter
 
 async def main():
-    # Initialize rate limiter
+    # Initialize rate limiter (reactive - only pauses on 429)
     limiter = RateLimiter()
     
     # Discover products from Product Hunt
@@ -366,6 +384,8 @@ async def main():
 asyncio.run(main())
 ```
 
+> **Note**: The `collect` module is a CLI entry point and is intentionally not exported from `crawl4ai.market_intel`. Import components directly from their modules if needed for programmatic use.
+
 ---
 
 ## Agent Instructions
@@ -374,11 +394,11 @@ When operating this system as an AI agent:
 
 1. **Always check status first**: `python -m crawl4ai.market_intel.collect status`
 
-2. **Build targets before extracting**: Run `target-build` if no pending targets
+2. **Build targets before extracting**: Run `target-build --no-resolve` if no pending targets
 
 3. **Use verbose mode**: Add `-v` to see progress
 
-4. **Handle rate limits gracefully**: The system auto-recovers, just wait
+4. **Handle rate limits gracefully**: The system auto-recovers with reactive rate limiting
 
 5. **Check environment variables**: Ensure tokens are set before running
 
@@ -387,3 +407,5 @@ When operating this system as an AI agent:
 7. **Reset failed on retry**: Use `reset --failed-only` before re-extracting
 
 8. **Commit target list**: The targets.jsonl file should be version controlled
+
+9. **Use --no-resolve for speed**: Skip URL resolution during target building for faster collection

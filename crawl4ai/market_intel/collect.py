@@ -39,6 +39,8 @@ from crawl4ai import (
     LLMExtractionStrategy,
 )
 from crawl4ai.async_configs import LLMConfig
+from crawl4ai.content_filter_strategy import PruningContentFilter
+from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 
 from .saashub import SaaSHubClient, SaaSHubAPIError, RateLimitError
 from .schemas import (
@@ -311,7 +313,34 @@ class MarketIntelCollector:
             verbose=self.verbose,
         )
         
-        async with AsyncWebCrawler(config=BrowserConfig(headless=True)) as crawler:
+        # Optimized browser config for performance
+        browser_config = BrowserConfig(
+            headless=True,
+            text_mode=True,  # Disable images for speed
+            light_mode=True,  # Disable background features
+        )
+        
+        # Content filter to reduce LLM input size
+        prune_filter = PruningContentFilter(
+            threshold=0.4,
+            threshold_type="dynamic",
+            min_word_threshold=5,
+        )
+        md_generator = DefaultMarkdownGenerator(content_filter=prune_filter)
+        
+        # Optimized crawler config
+        run_config = CrawlerRunConfig(
+            extraction_strategy=extraction_strategy,
+            markdown_generator=md_generator,
+            cache_mode=CacheMode.BYPASS,
+            wait_until="domcontentloaded",
+            page_timeout=30000,
+            word_count_threshold=10,
+            excluded_tags=["nav", "footer", "header", "aside", "script", "style", "noscript", "iframe"],
+            exclude_external_links=True,
+        )
+        
+        async with AsyncWebCrawler(config=browser_config) as crawler:
             for i, prod in enumerate(products):
                 if self.state.should_halt():
                     self._log(f"Halting: {self.state.halt_reason}")
@@ -324,11 +353,7 @@ class MarketIntelCollector:
                 try:
                     result = await crawler.arun(
                         url=prod.homepage_url,
-                        config=CrawlerRunConfig(
-                            extraction_strategy=extraction_strategy,
-                            cache_mode=CacheMode.BYPASS,
-                            wait_until="domcontentloaded",
-                        )
+                        config=run_config,
                     )
                     
                     if not result.success:
@@ -724,7 +749,39 @@ class ProductHuntCollector:
             verbose=self.verbose,
         )
         
-        async with AsyncWebCrawler(config=BrowserConfig(headless=True)) as crawler:
+        # Optimized browser config for performance
+        # - text_mode: Disables images for faster loading
+        # - light_mode: Disables background features
+        browser_config = BrowserConfig(
+            headless=True,
+            text_mode=True,  # Disable images for speed
+            light_mode=True,  # Disable background features
+        )
+        
+        # Content filter to reduce LLM input size (faster extraction, lower cost)
+        prune_filter = PruningContentFilter(
+            threshold=0.4,  # Moderate pruning to keep relevant content
+            threshold_type="dynamic",
+            min_word_threshold=5,
+        )
+        md_generator = DefaultMarkdownGenerator(content_filter=prune_filter)
+        
+        # Optimized crawler config
+        # - excluded_tags: Remove nav/footer/header/scripts
+        # - page_timeout: 30s instead of 60s default
+        # - word_count_threshold: Skip trivial blocks
+        run_config = CrawlerRunConfig(
+            extraction_strategy=extraction_strategy,
+            markdown_generator=md_generator,
+            cache_mode=CacheMode.BYPASS,
+            wait_until="domcontentloaded",
+            page_timeout=30000,  # 30s timeout (faster failures on slow sites)
+            word_count_threshold=10,  # Skip blocks with <10 words
+            excluded_tags=["nav", "footer", "header", "aside", "script", "style", "noscript", "iframe"],
+            exclude_external_links=True,  # We only need content, not links
+        )
+        
+        async with AsyncWebCrawler(config=browser_config) as crawler:
             for i, target in enumerate(pending_targets):
                 self._log(f"[{i+1}/{len(pending_targets)}] Extracting: {target.name} ({target.homepage_url})")
                 
@@ -734,11 +791,7 @@ class ProductHuntCollector:
                 try:
                     result = await crawler.arun(
                         url=target.homepage_url,
-                        config=CrawlerRunConfig(
-                            extraction_strategy=extraction_strategy,
-                            cache_mode=CacheMode.BYPASS,
-                            wait_until="domcontentloaded",
-                        )
+                        config=run_config,
                     )
                     
                     if not result.success:

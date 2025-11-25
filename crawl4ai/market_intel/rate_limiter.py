@@ -52,7 +52,7 @@ RATE_LIMIT_CONFIGS = {
         source=RateLimitSource.PRODUCT_HUNT,
         requests_per_period=500,
         period_seconds=15 * 60,  # 15 minutes
-        default_retry_seconds=15 * 60,  # 15 minutes
+        default_retry_seconds=60,  # 1 minute fallback when no retry-after header
     ),
     RateLimitSource.OPENAI: RateLimitConfig(
         source=RateLimitSource.OPENAI,
@@ -148,31 +148,26 @@ class RateLimiter:
     
     async def wait(self, source: RateLimitSource) -> None:
         """
-        Wait for the minimum delay before the next request.
+        Track request timing (no proactive delay).
         
-        This is a simple delay-based limiter that ensures we don't
-        exceed the rate limit by spacing out requests.
+        This method no longer proactively delays requests. Instead, rate limiting
+        is handled reactively - we only pause when we actually receive a 429 error.
+        This allows faster throughput when we're not hitting limits.
         """
-        config = self._get_config(source)
         state = self._get_state(source)
         
         now = time.time()
         
-        # Check if we need to reset the period
+        # Check if we need to reset the period (for tracking purposes only)
+        config = self._get_config(source)
         if now - state.period_start_time >= config.period_seconds:
             state.reset_period()
         
-        # Calculate required delay
-        elapsed = now - state.last_request_time
-        required_delay = config.min_delay_seconds - elapsed
-        
-        if required_delay > 0:
-            logger.debug(f"[{source.value}] Waiting {required_delay:.1f}s before next request")
-            await asyncio.sleep(required_delay)
-        
-        # Update state
+        # Update state (no delay, just track)
         state.last_request_time = time.time()
         state.request_count += 1
+        
+        logger.debug(f"[{source.value}] Request #{state.request_count} in current period")
     
     async def handle_rate_limit(
         self,
@@ -286,6 +281,11 @@ class RateLimiter:
                 
                 # Extract retry-after if available
                 retry_after = self._extract_retry_after(e)
+                
+                logger.info(
+                    f"[{source.value}] Rate limit error caught: {e}. "
+                    f"retry_after={retry_after}, has attr={hasattr(e, 'retry_after')}"
+                )
                 
                 # Call the callback before sleeping
                 if on_rate_limit:

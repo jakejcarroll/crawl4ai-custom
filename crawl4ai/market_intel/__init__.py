@@ -26,7 +26,7 @@ from .targets import TargetManager, Target, TargetStatus
 from .schemas import SaaSProductInfo, CollectedProduct
 from .state import CollectionState, ProductState
 from .url_discovery import discover_homepage_urls
-from .collect import MarketIntelCollector, ProductHuntCollector
+# Note: collect.py is a CLI module, not imported here to avoid conflicts when run as __main__
 
 __all__ = [
     # SaaSHub (legacy)
@@ -56,7 +56,4 @@ __all__ = [
     "ProductState",
     # URL discovery
     "discover_homepage_urls",
-    # Collectors
-    "MarketIntelCollector",
-    "ProductHuntCollector",
 ]
