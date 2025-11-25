@@ -32,6 +32,21 @@ class PricingTier(BaseModel):
     features: List[str] = Field(default_factory=list, description="Key features included in this tier")
 
 
+class ProductFeature(BaseModel):
+    """Detailed information about a single product feature."""
+    name: str = Field(..., description="Feature name (e.g., 'Real-time collaboration')")
+    description: Optional[str] = Field(None, description="Detailed description of what this feature does and how it works")
+    benefit: Optional[str] = Field(None, description="The business benefit or value this feature provides to users")
+    category: Optional[str] = Field(None, description="Feature category (e.g., 'Collaboration', 'Analytics', 'Automation', 'Security', 'Integration')")
+
+
+class Differentiator(BaseModel):
+    """What makes this product unique compared to alternatives."""
+    aspect: str = Field(..., description="The differentiating aspect (e.g., 'AI-powered automation', 'No-code interface')")
+    description: str = Field(..., description="Detailed explanation of how this differentiates the product")
+    competitive_advantage: Optional[str] = Field(None, description="Why this matters vs competitors")
+
+
 class SaaSProductInfo(BaseModel):
     """
     Structured information about a SaaS product.
@@ -44,6 +59,7 @@ class SaaSProductInfo(BaseModel):
     name: str = Field(..., description="Official product name")
     tagline: Optional[str] = Field(None, description="Product tagline or slogan")
     description: Optional[str] = Field(None, description="Brief product description (1-2 sentences)")
+    value_proposition: Optional[str] = Field(None, description="The core value proposition - what main problem does this solve and for whom?")
     
     # Pricing Information
     pricing_model: PricingModel = Field(
@@ -59,24 +75,81 @@ class SaaSProductInfo(BaseModel):
         description="List of pricing tiers if available"
     )
     
-    # Features & Capabilities
+    # Detailed Features & Capabilities
     key_features: List[str] = Field(
         default_factory=list,
-        description="Main product features (top 5-10)"
+        description="Main product features as simple list (top 10-15)"
     )
+    detailed_features: List[ProductFeature] = Field(
+        default_factory=list,
+        description="Detailed breakdown of major features with descriptions and benefits"
+    )
+    core_capabilities: List[str] = Field(
+        default_factory=list,
+        description="Core technical capabilities (e.g., 'Real-time sync', 'Offline support', 'API access', 'Webhooks')"
+    )
+    ai_features: List[str] = Field(
+        default_factory=list,
+        description="AI/ML-powered features if any (e.g., 'AI writing assistant', 'Smart suggestions', 'Predictive analytics')"
+    )
+    automation_capabilities: List[str] = Field(
+        default_factory=list,
+        description="Automation features (e.g., 'Workflow automation', 'Scheduled tasks', 'Triggers and actions')"
+    )
+    collaboration_features: List[str] = Field(
+        default_factory=list,
+        description="Team collaboration features (e.g., 'Real-time editing', 'Comments', 'Mentions', 'Shared workspaces')"
+    )
+    security_features: List[str] = Field(
+        default_factory=list,
+        description="Security and compliance features (e.g., 'SSO', 'SOC2', 'GDPR', '2FA', 'Encryption')"
+    )
+    
+    # Differentiators & Positioning
+    differentiators: List[Differentiator] = Field(
+        default_factory=list,
+        description="What makes this product unique and different from competitors"
+    )
+    unique_selling_points: List[str] = Field(
+        default_factory=list,
+        description="Key unique selling points highlighted on the page"
+    )
+    competitive_positioning: Optional[str] = Field(
+        None,
+        description="How the product positions itself in the market (e.g., 'Enterprise-grade alternative to X', 'Simpler than Y')"
+    )
+    mentioned_competitors: List[str] = Field(
+        default_factory=list,
+        description="Any competitor products explicitly mentioned or compared against"
+    )
+    
+    # Integrations & Ecosystem
     integrations: List[str] = Field(
         default_factory=list,
-        description="Notable integrations mentioned (e.g., 'Slack', 'Salesforce')"
+        description="Notable integrations mentioned (e.g., 'Slack', 'Salesforce', 'Zapier')"
     )
+    integration_categories: List[str] = Field(
+        default_factory=list,
+        description="Categories of integrations available (e.g., 'CRM', 'Communication', 'Storage', 'Analytics')"
+    )
+    api_available: bool = Field(False, description="Whether a public API is available")
     platforms: List[str] = Field(
         default_factory=list,
-        description="Supported platforms (e.g., 'Web', 'iOS', 'Android', 'Desktop')"
+        description="Supported platforms (e.g., 'Web', 'iOS', 'Android', 'Desktop', 'Mac', 'Windows')"
     )
     
     # Target Market
     target_audience: Optional[str] = Field(
         None,
         description="Primary target audience (e.g., 'Small businesses', 'Enterprise', 'Developers')"
+    )
+    target_company_size: List[str] = Field(
+        default_factory=list,
+        description="Target company sizes (e.g., 'Startup', 'SMB', 'Mid-market', 'Enterprise')"
+    )
+    target_roles: List[str] = Field(
+        default_factory=list,
+        description="Target job roles/personas (e.g., 'Product Managers', 'Developers', 'Marketing Teams')"
     )
     use_cases: List[str] = Field(
         default_factory=list,
@@ -92,11 +165,20 @@ class SaaSProductInfo(BaseModel):
     founded_year: Optional[int] = Field(None, description="Year company/product was founded")
     headquarters: Optional[str] = Field(None, description="Company headquarters location")
     
-    # Social Proof
+    # Social Proof & Traction
     customer_count: Optional[str] = Field(None, description="Number of customers if mentioned (e.g., '10,000+')")
+    user_count: Optional[str] = Field(None, description="Number of users if mentioned (e.g., '2 million users')")
     notable_customers: List[str] = Field(
         default_factory=list,
         description="Notable customer names mentioned"
+    )
+    testimonials: List[str] = Field(
+        default_factory=list,
+        description="Key testimonial quotes or endorsements"
+    )
+    awards_recognition: List[str] = Field(
+        default_factory=list,
+        description="Awards, rankings, or recognition mentioned (e.g., 'G2 Leader', '#1 on Product Hunt')"
     )
 
 
@@ -141,17 +223,61 @@ class CollectedProduct(BaseModel):
 
 # LLM extraction instruction for SaaSProductInfo
 EXTRACTION_INSTRUCTION = """
-Extract structured information about this SaaS product from the webpage.
-Focus on:
-1. Product name and description
-2. Pricing information (tiers, prices, free trial availability)
-3. Key features and capabilities
-4. Target audience and use cases
-5. Company information
+Extract comprehensive market intelligence about this SaaS product from the webpage.
 
-If information is not clearly stated on the page, leave those fields empty.
-For pricing, extract exact prices if shown (e.g., "$10/month").
-For features, list the main ones mentioned (limit to top 10).
+## DETAILED EXTRACTION GUIDELINES:
+
+### 1. Product Identity & Positioning
+- Extract the official product name, tagline, and description
+- Identify the core VALUE PROPOSITION: What main problem does this solve? For whom?
+- Note any COMPETITIVE POSITIONING: How does it position itself vs alternatives?
+- List any COMPETITORS explicitly mentioned or compared against
+
+### 2. Features - Be Thorough and Specific
+For DETAILED_FEATURES, extract 5-10 major features with:
+- Feature name (be specific, e.g., "Real-time collaborative editing" not just "collaboration")
+- Description: HOW the feature works, not just what it is
+- Benefit: What business value or outcome does this provide?
+- Category: Collaboration, Analytics, Automation, Security, Integration, etc.
+
+Also extract:
+- AI_FEATURES: Any AI/ML capabilities (smart suggestions, AI writing, predictive analytics, etc.)
+- AUTOMATION_CAPABILITIES: Workflow automation, triggers, scheduled tasks, no-code builders
+- COLLABORATION_FEATURES: Real-time editing, comments, mentions, sharing, permissions
+- SECURITY_FEATURES: SSO, 2FA, SOC2, GDPR, encryption, audit logs, etc.
+- CORE_CAPABILITIES: Technical capabilities like API, webhooks, offline support, mobile apps
+
+### 3. Differentiators - What Makes It Unique
+For each DIFFERENTIATOR, explain:
+- What specific aspect sets this product apart
+- HOW it's different from typical solutions
+- WHY this matters (competitive advantage)
+
+Look for phrases like: "the only", "unlike others", "first to", "best-in-class", "unique"
+
+### 4. Integrations & Ecosystem  
+- List specific integration names (Slack, Salesforce, Zapier, etc.)
+- Note integration categories available
+- Check if API is mentioned as available
+
+### 5. Target Market
+- WHO is this for? (company sizes, roles, industries)
+- WHAT use cases are highlighted?
+- Any specific personas or team types mentioned?
+
+### 6. Social Proof
+- Customer/user counts
+- Notable customer logos/names
+- Testimonial quotes
+- Awards, rankings (G2, Capterra, Product Hunt, etc.)
+
+### 7. Pricing
+- Pricing model and tiers
+- Free tier/trial availability
+- Starting prices if shown
+
+BE THOROUGH: Extract as much detail as possible. If a feature is mentioned, explain what it does.
+If information is not on the page, leave those fields empty rather than guessing.
 """
 
 

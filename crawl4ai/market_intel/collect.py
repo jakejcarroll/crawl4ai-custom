@@ -31,7 +31,7 @@ from crawl4ai import (
     CacheMode,
     LLMExtractionStrategy,
 )
-from crawl4ai.types import LLMConfig
+from crawl4ai.async_configs import LLMConfig
 
 from .saashub import SaaSHubClient, SaaSHubAPIError, RateLimitError
 from .schemas import (
@@ -315,7 +315,7 @@ class MarketIntelCollector:
                         url=prod.homepage_url,
                         config=CrawlerRunConfig(
                             extraction_strategy=extraction_strategy,
-                            cache_mode=CacheMode.ENABLED,
+                            cache_mode=CacheMode.BYPASS,
                             wait_until="domcontentloaded",
                         )
                     )
