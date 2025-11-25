@@ -1,0 +1,233 @@
+# Market Intelligence Seed Queries
+#
+# These seed queries are used with the SaaSHub API to discover SaaS products.
+# Each seed is queried via /api/alternatives/{seed} to find related products.
+#
+# Categories are for organization only - all seeds are processed the same way.
+
+# Project Management & Productivity
+productivity:
+  - notion
+  - trello
+  - asana
+  - monday
+  - clickup
+  - basecamp
+  - todoist
+  - evernote
+  - obsidian
+  - roam-research
+  - linear
+  - height
+  - shortcut
+
+# CRM & Sales
+crm:
+  - salesforce
+  - hubspot
+  - pipedrive
+  - zoho-crm
+  - close
+  - copper
+  - freshsales
+  - insightly
+
+# Marketing & Growth
+marketing:
+  - mailchimp
+  - convertkit
+  - activecampaign
+  - klaviyo
+  - sendgrid
+  - mailerlite
+  - drip
+  - buffer
+  - hootsuite
+  - later
+  - sprout-social
+
+# Analytics & Data
+analytics:
+  - mixpanel
+  - amplitude
+  - heap
+  - fullstory
+  - hotjar
+  - google-analytics
+  - plausible
+  - posthog
+  - segment
+
+# Customer Support
+support:
+  - zendesk
+  - intercom
+  - freshdesk
+  - helpscout
+  - crisp
+  - drift
+  - tidio
+  - gorgias
+
+# Developer Tools
+devtools:
+  - github
+  - gitlab
+  - bitbucket
+  - jira
+  - sentry
+  - datadog
+  - new-relic
+  - pagerduty
+  - postman
+  - insomnia
+  - swagger
+
+# Design & Collaboration
+design:
+  - figma
+  - sketch
+  - adobe-xd
+  - invision
+  - miro
+  - mural
+  - whimsical
+  - lucidchart
+  - canva
+
+# Communication & Collaboration
+communication:
+  - slack
+  - discord
+  - microsoft-teams
+  - zoom
+  - loom
+  - around
+  - gather
+
+# E-commerce
+ecommerce:
+  - shopify
+  - woocommerce
+  - bigcommerce
+  - magento
+  - squarespace
+  - webflow
+  - gumroad
+  - lemonsqueezy
+
+# Payments & Finance
+finance:
+  - stripe
+  - paddle
+  - chargebee
+  - recurly
+  - braintree
+  - quickbooks
+  - xero
+  - freshbooks
+  - wave
+
+# Cloud & Infrastructure
+infrastructure:
+  - aws
+  - google-cloud
+  - azure
+  - digitalocean
+  - heroku
+  - vercel
+  - netlify
+  - railway
+  - render
+  - fly-io
+
+# Database & Backend
+backend:
+  - supabase
+  - firebase
+  - mongodb
+  - planetscale
+  - neon
+  - upstash
+  - redis
+
+# AI & ML Tools
+ai:
+  - openai
+  - anthropic
+  - hugging-face
+  - replicate
+  - stability-ai
+  - jasper
+  - copy-ai
+  - writesonic
+
+# No-Code & Low-Code
+nocode:
+  - zapier
+  - make
+  - n8n
+  - airtable
+  - retool
+  - bubble
+  - glide
+  - softr
+  - webflow
+
+# Documentation & Knowledge Base
+documentation:
+  - gitbook
+  - readme
+  - notion
+  - confluence
+  - slite
+  - coda
+  - almanac
+
+# Scheduling & Appointments
+scheduling:
+  - calendly
+  - cal-com
+  - savvycal
+  - acuity
+  - doodle
+  - youcanbook
+
+# HR & People
+hr:
+  - bamboohr
+  - gusto
+  - rippling
+  - deel
+  - remote
+  - oyster
+  - lattice
+  - 15five
+
+# Video & Content
+video:
+  - youtube
+  - vimeo
+  - wistia
+  - vidyard
+  - descript
+  - riverside
+  - streamyard
+
+# Forms & Surveys
+forms:
+  - typeform
+  - surveymonkey
+  - google-forms
+  - jotform
+  - tally
+  - formspark
+
+# Security & Identity
+security:
+  - auth0
+  - okta
+  - onelogin
+  - 1password
+  - lastpass
+  - bitwarden

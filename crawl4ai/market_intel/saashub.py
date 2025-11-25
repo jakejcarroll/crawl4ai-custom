@@ -9,10 +9,9 @@ API Documentation: https://www.saashub.com/site/api
 """
 
 import os
-import sys
 import time
 import json
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from urllib.parse import urljoin
 
 import httpx
@@ -33,6 +32,14 @@ class SaaSHubAPIError(Exception):
     pass
 
 
+class RateLimitError(SaaSHubAPIError):
+    """Raised when rate limit is exceeded and all retries are exhausted."""
+    
+    def __init__(self, message: str, retry_after: Optional[int] = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 class SaaSHubClient:
     """
     Client for interacting with the SaaSHub public API.
@@ -46,13 +53,15 @@ class SaaSHubClient:
         api_key (str): SaaSHub API key from environment variable SAASHUB_API_KEY
         base_url (str): Base URL for the API
         timeout (float): Request timeout in seconds
+        request_delay (float): Delay between requests to respect rate limits
     """
     
     def __init__(
         self,
         api_key: Optional[str] = None,
         base_url: str = BASE_URL,
-        timeout: float = DEFAULT_TIMEOUT
+        timeout: float = DEFAULT_TIMEOUT,
+        request_delay: float = 12.0,  # ~5 requests per minute by default
     ):
         """
         Initialize the SaaSHub API client.
@@ -61,6 +70,7 @@ class SaaSHubClient:
             api_key: SaaSHub API key. If None, reads from SAASHUB_API_KEY env var.
             base_url: Base URL for the API (default: https://www.saashub.com/api/)
             timeout: Request timeout in seconds (default: 30.0)
+            request_delay: Minimum delay between requests in seconds (default: 12.0)
             
         Raises:
             ValueError: If no API key is provided or found in environment
@@ -74,7 +84,9 @@ class SaaSHubClient:
         
         self.base_url = base_url
         self.timeout = timeout
+        self.request_delay = request_delay
         self._client = httpx.Client(timeout=timeout)
+        self._last_request_time: Optional[float] = None
     
     def __enter__(self):
         """Context manager entry."""
@@ -87,6 +99,13 @@ class SaaSHubClient:
     def close(self):
         """Close the HTTP client and cleanup resources."""
         self._client.close()
+    
+    def _wait_for_rate_limit(self):
+        """Wait if necessary to respect rate limits."""
+        if self._last_request_time is not None:
+            elapsed = time.time() - self._last_request_time
+            if elapsed < self.request_delay:
+                time.sleep(self.request_delay - elapsed)
     
     def _make_request(
         self,
@@ -105,6 +124,7 @@ class SaaSHubClient:
             
         Raises:
             SaaSHubAPIError: If the request fails after retries
+            RateLimitError: If rate limit is exceeded after all retries
         """
         url = urljoin(self.base_url, endpoint)
         
@@ -115,7 +135,11 @@ class SaaSHubClient:
         last_error = None
         for attempt in range(MAX_RETRIES):
             try:
+                # Respect rate limits
+                self._wait_for_rate_limit()
+                
                 response = self._client.get(url, params=request_params)
+                self._last_request_time = time.time()
                 
                 # Handle rate limiting (429) with exponential backoff
                 if response.status_code == 429:
@@ -123,7 +147,10 @@ class SaaSHubClient:
                     if attempt < MAX_RETRIES - 1:
                         time.sleep(retry_after)
                         continue
-                    raise SaaSHubAPIError(f"Rate limit exceeded. Retry after {retry_after} seconds.")
+                    raise RateLimitError(
+                        f"Rate limit exceeded after {MAX_RETRIES} attempts.",
+                        retry_after=retry_after
+                    )
                 
                 # Raise for other HTTP errors
                 response.raise_for_status()
@@ -157,7 +184,7 @@ class SaaSHubClient:
         self,
         query: str,
         limit: Optional[int] = None
-    ) -> list[dict]:
+    ) -> List[Dict[str, Any]]:
         """
         Get alternatives for a given product.
         
@@ -201,7 +228,7 @@ class SaaSHubClient:
         except KeyError as e:
             raise SaaSHubAPIError(f"Unexpected API response structure: missing {e}") from e
     
-    def get_product(self, query: str) -> Optional[dict]:
+    def get_product(self, query: str) -> Optional[Dict[str, Any]]:
         """
         Get product details for a given query.
         
@@ -247,6 +274,39 @@ class SaaSHubClient:
             raise
         except KeyError as e:
             raise SaaSHubAPIError(f"Unexpected API response structure: missing {e}") from e
+    
+    def get_alternatives_batch(
+        self,
+        queries: List[str],
+        limit_per_query: Optional[int] = None,
+        on_progress: Optional[callable] = None,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get alternatives for multiple products with rate limiting.
+        
+        Args:
+            queries: List of product names to query
+            limit_per_query: Maximum alternatives per query
+            on_progress: Optional callback(query, index, total) for progress updates
+            
+        Returns:
+            Dict mapping query -> list of alternatives
+        """
+        results = {}
+        total = len(queries)
+        
+        for idx, query in enumerate(queries):
+            if on_progress:
+                on_progress(query, idx, total)
+            
+            try:
+                results[query] = self.get_alternatives(query, limit=limit_per_query)
+            except SaaSHubAPIError as e:
+                # Store error but continue with other queries
+                results[query] = []
+                print(f"Warning: Failed to get alternatives for '{query}': {e}")
+        
+        return results
 
 
 # CLI Entry Point
@@ -255,13 +315,14 @@ def main():
     Command-line interface for testing the SaaSHub API client.
     
     Usage:
-        python saashub_client.py --alternatives <query> [--limit <n>]
-        python saashub_client.py --product <query>
+        python -m crawl4ai.market_intel.saashub --alternatives <query> [--limit <n>]
+        python -m crawl4ai.market_intel.saashub --product <query>
     
     Examples:
-        python saashub_client.py --alternatives notion --limit 5
-        python saashub_client.py --product basecamp
+        python -m crawl4ai.market_intel.saashub --alternatives notion --limit 5
+        python -m crawl4ai.market_intel.saashub --product basecamp
     """
+    import sys
     import argparse
     
     parser = argparse.ArgumentParser(
@@ -357,4 +418,5 @@ Environment:
 
 
 if __name__ == "__main__":
+    import sys
     sys.exit(main())
